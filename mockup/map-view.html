@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>실시간 항적 지도</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+<div id="sidebar-root"></div>
+
+<div class="content-scroll">
+<div class="content-inner">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">실시간 AIS 항적 및 혼잡도 지도</h1>
+      <div class="page-subtitle">전 세계 선박 위치 · 항로 밀집도 모니터링 · <span id="region-count-label">표시 중 128척 (전체)</span></div>
+    </div>
+    <div class="header-actions">
+      <div class="pill-group">
+        <button id="pill-all" class="pill" onclick="setRegion('all')">전체</button>
+        <button id="pill-apac" class="pill" onclick="setRegion('apac')">아시아-태평양</button>
+        <button id="pill-eu" class="pill" onclick="setRegion('eu')">유럽</button>
+        <button id="pill-na" class="pill" onclick="setRegion('na')">북미</button>
+      </div>
+      <div class="status-pill">
+        <span class="status-pill__dot"></span>
+        <span class="status-pill__text">실시간 갱신 중</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main row -->
+  <div class="map-main-row">
+
+    <!-- Map -->
+    <div class="card map-card">
+      <div class="map-card__head">
+        <div class="card-title">선박 항적 · 혼잡 위험 구간</div>
+        <div class="map-legend">
+          <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--success"></span>정상 운항</span>
+          <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--warning"></span>지연 위험</span>
+          <span class="map-legend-item"><span class="map-legend-dot map-legend-dot--danger"></span>심각 지연</span>
+        </div>
+      </div>
+
+      <img class="map-image" src="assets/ais-map.png" alt="실시간 AIS 선박 위치 및 항적 지도">
+    </div>
+
+    <!-- Side panel -->
+    <div class="side-panel">
+
+      <div class="card panel-card">
+        <div class="card-title card-title--sm">선박 현황 요약</div>
+        <div class="summary-grid">
+          <div class="summary-tile summary-tile--all">
+            <div class="summary-value">128척</div>
+            <div class="summary-label">전체 운항</div>
+          </div>
+          <div class="summary-tile summary-tile--success">
+            <div class="summary-value">84척</div>
+            <div class="summary-label">정상 운항</div>
+          </div>
+          <div class="summary-tile summary-tile--warning">
+            <div class="summary-value">28척</div>
+            <div class="summary-label">지연 위험</div>
+          </div>
+          <div class="summary-tile summary-tile--danger">
+            <div class="summary-value">16척</div>
+            <div class="summary-label">심각 지연</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card panel-card">
+        <div class="card-title card-title--sm">항로별 혼잡 현황</div>
+        <div class="congestion-list">
+          <div>
+            <div class="congestion-row"><span class="congestion-name">BUSAN → SINGAPORE</span><span class="congestion-pct congestion-pct--danger">72%</span></div>
+            <div class="congestion-track"><div class="congestion-fill congestion-fill--danger w-72"></div></div>
+          </div>
+          <div>
+            <div class="congestion-row"><span class="congestion-name">SHANGHAI → LOS ANGELES</span><span class="congestion-pct congestion-pct--danger">68%</span></div>
+            <div class="congestion-track"><div class="congestion-fill congestion-fill--danger w-68"></div></div>
+          </div>
+          <div>
+            <div class="congestion-row"><span class="congestion-name">BUSAN → ROTTERDAM</span><span class="congestion-pct congestion-pct--warning">45%</span></div>
+            <div class="congestion-track"><div class="congestion-fill congestion-fill--warning w-45"></div></div>
+          </div>
+          <div>
+            <div class="congestion-row"><span class="congestion-name">SINGAPORE → DUBAI</span><span class="congestion-pct congestion-pct--success">30%</span></div>
+            <div class="congestion-track"><div class="congestion-fill congestion-fill--success w-30"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card panel-card alerts-card">
+        <div class="card-title card-title--sm">실시간 알림</div>
+        <div class="alerts-list">
+          <div class="alert-item">
+            <span class="alert-dot alert-dot--danger"></span>
+            <div><div class="alert-title">싱가포르 해협 혼잡도 92%</div><div class="alert-sub">대기 선박 34척 · 평균 대기 6.2시간</div></div>
+          </div>
+          <div class="alert-item">
+            <span class="alert-dot alert-dot--warning"></span>
+            <div><div class="alert-title">태풍 TY-14 접근 중</div><div class="alert-sub">영향 선박 8척 · 72시간 내 진입 예상</div></div>
+          </div>
+          <div class="alert-item">
+            <span class="alert-dot alert-dot--success"></span>
+            <div><div class="alert-title">로테르담 항만 정상 운영</div><div class="alert-sub">혼잡도 18% · 평균 대기 0.4시간</div></div>
+          </div>
+        </div>
+        <a href="graph-analysis.html" class="alerts-link">
+          원인 그래프에서 상세 분석 보기
+          <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4l6 6-6 6"/></svg>
+        </a>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+</div>
+</div>
+
+<script src="sidebar.js"></script>
+<script src="map-view.js"></script>
+</body>
+</html>

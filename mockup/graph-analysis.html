@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>원인 그래프 분석</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+<div id="sidebar-root"></div>
+
+<div class="content-scroll">
+<div class="content-inner">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">지연 원인 인과 그래프 분석</h1>
+      <div class="page-subtitle">Neo4j Knowledge Graph × GraphRAG 인덱싱 · 엔티티-관계 추론</div>
+    </div>
+    <div class="header-actions">
+      <div class="header-select">
+        <span class="header-select__label">선박 선택</span>
+        <span class="header-select__value">MSC OSCAR</span>
+        <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="var(--color-text-secondary)" stroke-width="2"><path d="M5 8l5 5 5-5"/></svg>
+      </div>
+      <div class="pill-group">
+        <button id="pill-local" class="pill pill--lg" onclick="setMode('local')">Local Search</button>
+        <button id="pill-global" class="pill pill--lg" onclick="setMode('global')">Global Search</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main row -->
+  <div class="graph-main-row">
+
+    <!-- Graph canvas -->
+    <div class="card graph-card">
+      <div class="graph-card__head">
+        <div class="graph-card__title">인과 관계 그래프</div>
+        <div class="graph-legend">
+          <span class="graph-legend-item"><span class="graph-legend-dot graph-legend-dot--ship"></span>선박</span>
+          <span class="graph-legend-item"><span class="graph-legend-dot graph-legend-dot--port"></span>항만</span>
+          <span class="graph-legend-item"><span class="graph-legend-dot graph-legend-dot--weather"></span>기상</span>
+          <span class="graph-legend-item"><span class="graph-legend-dot graph-legend-dot--event"></span>이벤트</span>
+        </div>
+      </div>
+
+      <svg class="graph-svg" width="100%" height="100%" viewBox="0 0 820 620">
+        <!-- edges -->
+        <line x1="120" y1="160" x2="272" y2="120" stroke="#B9CBE0" stroke-width="2"/>
+        <line x1="120" y1="160" x2="430" y2="160" stroke="#B9CBE0" stroke-width="2"/>
+        <line x1="296" y1="120" x2="600" y2="120" stroke="#B9CBE0" stroke-width="2"/>
+        <line x1="450" y1="175" x2="120" y2="440" stroke="#D8C39A" stroke-width="2" stroke-dasharray="5 5"/>
+        <line x1="120" y1="440" x2="272" y2="470" stroke="#B9CBE0" stroke-width="2"/>
+        <line x1="296" y1="470" x2="450" y2="470" stroke="#B9CBE0" stroke-width="2"/>
+
+        <text x="440" y="105" font-size="11" font-weight="700" fill="var(--color-text-body)" font-family="IBM Plex Sans KR">기여도 45%</text>
+        <text x="230" y="160" font-size="11" font-weight="700" fill="var(--color-text-body)" font-family="IBM Plex Sans KR">기여도 32%</text>
+        <text x="330" y="463" font-size="11" font-weight="700" fill="var(--color-text-body)" font-family="IBM Plex Sans KR">기여도 14%</text>
+
+        <!-- Ship A: MSC OSCAR -->
+        <g>
+          <circle cx="90" cy="160" r="32" fill="var(--color-navy-800)"/>
+          <path d="M76 162c3 2.4 6 2.4 9 0 3-2.4 6-2.4 9 0" stroke="var(--color-white)" stroke-width="1.6" fill="none" stroke-linecap="round" transform="translate(0,-2)"/>
+          <path d="M79 160 80.5 154h19l1.5 12" stroke="var(--color-white)" stroke-width="1.4" fill="none" transform="translate(0,-2)"/>
+          <text x="90" y="205" font-size="12.5" font-weight="800" fill="var(--color-ink)" text-anchor="middle" font-family="IBM Plex Sans KR">MSC OSCAR</text>
+          <text x="90" y="220" font-size="10" fill="var(--color-text-tertiary)" text-anchor="middle" font-family="IBM Plex Sans KR">현재 선박</text>
+        </g>
+
+        <!-- Port: SINGAPORE -->
+        <g>
+          <rect x="260" y="98" width="72" height="44" rx="10" fill="var(--color-primary-light)" stroke="var(--color-accent-blue)" stroke-width="1.6"/>
+          <text x="296" y="124" font-size="12" font-weight="800" fill="var(--color-ink)" text-anchor="middle" font-family="IBM Plex Sans KR">SINGAPORE</text>
+          <text x="296" y="160" font-size="10" fill="var(--color-text-tertiary)" text-anchor="middle" font-family="IBM Plex Sans KR">항만</text>
+        </g>
+
+        <!-- Event: 항만 혼잡 -->
+        <g>
+          <circle cx="628" cy="120" r="28" fill="var(--color-danger-bg)" stroke="var(--color-danger)" stroke-width="1.6"/>
+          <path d="M628 108v14M628 126.5v2" stroke="var(--color-danger)" stroke-width="2.2" stroke-linecap="round"/>
+          <text x="628" y="163" font-size="12" font-weight="800" fill="var(--color-ink)" text-anchor="middle" font-family="IBM Plex Sans KR">항만 혼잡 이벤트</text>
+          <text x="628" y="178" font-size="10" fill="var(--color-text-tertiary)" text-anchor="middle" font-family="IBM Plex Sans KR">혼잡도 92%</text>
+        </g>
+
+        <!-- Weather -->
+        <g>
+          <rect x="428" y="148" width="46" height="46" rx="8" fill="var(--color-warning-bg)" stroke="var(--color-amber)" stroke-width="1.6" transform="rotate(45 451 171)"/>
+          <text x="451" y="222" font-size="12" font-weight="800" fill="var(--color-ink)" text-anchor="middle" font-family="IBM Plex Sans KR">열대저기압 TY-14</text>
+          <text x="451" y="237" font-size="10" fill="var(--color-text-tertiary)" text-anchor="middle" font-family="IBM Plex Sans KR">기상 이벤트</text>
+        </g>
+
+        <!-- Ship B: EVER GLORY -->
+        <g>
+          <circle cx="90" cy="440" r="32" fill="var(--color-navy-800)"/>
+          <path d="M76 442c3 2.4 6 2.4 9 0 3-2.4 6-2.4 9 0" stroke="var(--color-white)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          <path d="M79 440 80.5 434h19l1.5 12" stroke="var(--color-white)" stroke-width="1.4" fill="none"/>
+          <text x="90" y="485" font-size="12.5" font-weight="800" fill="var(--color-ink)" text-anchor="middle" font-family="IBM Plex Sans KR">EVER GLORY</text>
+          <text x="90" y="500" font-size="10" fill="var(--color-text-tertiary)" text-anchor="middle" font-family="IBM Plex Sans KR">연관 선박</text>
+        </g>
+
+        <!-- Port: PUSAN -->
+        <g>
+          <rect x="260" y="448" width="72" height="44" rx="10" fill="var(--color-primary-light)" stroke="var(--color-accent-blue)" stroke-width="1.6"/>
+          <text x="296" y="474" font-size="12" font-weight="800" fill="var(--color-ink)" text-anchor="middle" font-family="IBM Plex Sans KR">PUSAN</text>
+          <text x="296" y="510" font-size="10" fill="var(--color-text-tertiary)" text-anchor="middle" font-family="IBM Plex Sans KR">항만</text>
+        </g>
+
+        <!-- Event: 통관 지연 -->
+        <g>
+          <circle cx="480" cy="470" r="28" fill="var(--color-danger-bg)" stroke="var(--color-danger)" stroke-width="1.6"/>
+          <path d="M480 458v14M480 476.5v2" stroke="var(--color-danger)" stroke-width="2.2" stroke-linecap="round"/>
+          <text x="480" y="513" font-size="12" font-weight="800" fill="var(--color-ink)" text-anchor="middle" font-family="IBM Plex Sans KR">통관 지연 이벤트</text>
+          <text x="480" y="528" font-size="10" fill="var(--color-text-tertiary)" text-anchor="middle" font-family="IBM Plex Sans KR">서류 처리 3일 지연</text>
+        </g>
+      </svg>
+    </div>
+
+    <!-- AI reasoning chat panel -->
+    <div class="card chat-panel">
+
+      <div class="chat-header">
+        <div class="chat-bot-icon">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--color-white)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="15" r="2.1"/><circle cx="15" cy="15" r="2.1"/><circle cx="10" cy="5" r="2.1"/><line x1="6.6" y1="13.6" x2="9" y2="7"/><line x1="13.4" y1="13.6" x2="11" y2="7"/><line x1="7.3" y1="15" x2="12.7" y2="15"/></svg>
+        </div>
+        <div>
+          <div class="chat-header__title">AI 추론 챗봇</div>
+          <div class="chat-header__sub">Neo4j Cypher · LangChain Retrieval · <span id="mode-label">Local Search 모드</span></div>
+        </div>
+        <span class="chat-status"><span class="chat-status__dot"></span>온라인</span>
+      </div>
+
+      <div class="chat-messages">
+
+        <div class="msg-row--user">
+          <div class="msg-bubble-user">이 선박이 왜 지연되었나요?</div>
+        </div>
+
+        <div class="msg-row--bot">
+          <div class="msg-avatar">
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="var(--color-white)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="15" r="2.1"/><circle cx="15" cy="15" r="2.1"/><circle cx="10" cy="5" r="2.1"/><line x1="6.6" y1="13.6" x2="9" y2="7"/><line x1="13.4" y1="13.6" x2="11" y2="7"/><line x1="7.3" y1="15" x2="12.7" y2="15"/></svg>
+          </div>
+          <div class="msg-bubble-bot">
+            <div id="answer-local">
+              <span class="mode-tag">Local Search · 선박 특정 응답</span>
+              <div class="msg-text">선택한 <b>MSC OSCAR</b>호는 현재 SHANGHAI → LOS ANGELES 항로 운항 중이며, 예상 대비 <b>14.3시간</b> 지연되었습니다. 그래프 탐색 결과 싱가포르 인근 태풍 TY-14 경보 구간을 통과하며 속도가 저하된 것이 직접적 원인으로 추론됩니다.</div>
+            </div>
+            <div id="answer-global" class="is-hidden">
+              <span class="mode-tag">Global Search · 전체 패턴 응답</span>
+              <div class="msg-text">최근 30일간 아시아-태평양 항로 전반에서 태풍 및 항만 혼잡으로 인한 지연이 반복 발생하고 있습니다. 그래프 커뮤니티 탐지 결과 '동남아 환적 허브' 클러스터에서 지연 전파가 두드러지며, 유사 패턴이 12개 항해에서 관찰되었습니다.</div>
+            </div>
+            <div class="evidence-chips">
+              <span class="evidence-chip">AIS 속도 로그 94%</span>
+              <span class="evidence-chip">태풍 경보 TY-14 88%</span>
+              <span class="evidence-chip">항만 혼잡 로그 76%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="msg-row--user">
+          <div class="msg-bubble-user">그 근거 자료는 어디서 가져온 거야?</div>
+        </div>
+
+        <div class="msg-row--bot">
+          <div class="msg-avatar">
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="var(--color-white)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="15" r="2.1"/><circle cx="15" cy="15" r="2.1"/><circle cx="10" cy="5" r="2.1"/><line x1="6.6" y1="13.6" x2="9" y2="7"/><line x1="13.4" y1="13.6" x2="11" y2="7"/><line x1="7.3" y1="15" x2="12.7" y2="15"/></svg>
+          </div>
+          <div class="msg-bubble-bot">
+            <div class="msg-text msg-text--plain">Neo4j 지식그래프에 적재된 AIS 로그, 기상청 태풍 경보, 항만 혼잡 이벤트 로그, 통관 서류 처리 기록을 GraphRAG 인덱싱으로 연결하고, 관련 서브그래프를 Cypher로 조회해 근거로 사용했습니다.</div>
+          </div>
+        </div>
+
+        <div class="msg-row--user">
+          <div class="msg-bubble-user">그럼 항로를 우회하면 지연이 줄어들까?</div>
+        </div>
+
+        <div class="msg-row--bot">
+          <div class="msg-avatar">
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="var(--color-white)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="15" r="2.1"/><circle cx="15" cy="15" r="2.1"/><circle cx="10" cy="5" r="2.1"/><line x1="6.6" y1="13.6" x2="9" y2="7"/><line x1="13.4" y1="13.6" x2="11" y2="7"/><line x1="7.3" y1="15" x2="12.7" y2="15"/></svg>
+          </div>
+          <div class="msg-bubble-bot">
+            <div class="msg-text msg-text--plain">시뮬레이션 결과 싱가포르 해협을 우회해 순다 해협으로 재항로 설정 시 예상 지연이 <b>14.3시간 → 6.8시간</b>으로 약 52% 감소하지만, 항해 거리가 늘어 연료비가 약 8% 증가하는 트레이드오프가 있습니다.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="chat-input-bar">
+        <div class="chat-input">
+          <span class="chat-input__placeholder">선박 지연 원인에 대해 질문해보세요...</span>
+        </div>
+        <button class="chat-send-btn">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--color-white)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l14-6-6 14-2-6-6-2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</div>
+</div>
+
+<script src="sidebar.js"></script>
+<script src="graph-analysis.js"></script>
+</body>
+</html>
