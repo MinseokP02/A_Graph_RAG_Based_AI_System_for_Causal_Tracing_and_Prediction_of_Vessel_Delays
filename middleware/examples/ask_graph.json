@@ -1,0 +1,12 @@
+{
+  "question": "호출부호 202809 선박의 2026년 8월 입출항과 사용 계선시설을 알려줘.",
+  "plan": {
+    "intent": "berths",
+    "call_sign": "202809",
+    "start_date": "2026-08-01",
+    "end_date": "2026-08-31",
+    "date_basis": "event"
+  },
+  "use_documents": false,
+  "max_records": 10
+}

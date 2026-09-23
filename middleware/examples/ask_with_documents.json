@@ -1,0 +1,12 @@
+{
+  "question": "호출부호 202809 선박의 2026년 8월 입출항 기록을 요약하고, 관련 문서가 있으면 일반적인 지연 요인도 구분해서 설명해줘.",
+  "plan": {
+    "intent": "visits",
+    "call_sign": "202809",
+    "start_date": "2026-08-01",
+    "end_date": "2026-08-31",
+    "date_basis": "event"
+  },
+  "use_documents": true,
+  "max_records": 10
+}
