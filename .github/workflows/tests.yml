@@ -43,10 +43,18 @@ jobs:
         --extra api --extra offline-storage --extra offline-llm --extra pytest
 
     - name: Run offline tests
+      id: offline-tests
+      continue-on-error: true
       # Run only tests marked as 'offline' (no external dependencies);
       # integration tests requiring databases/APIs are skipped by default.
       # --no-sync: the environment was already synced above.
-      run: uv run --no-sync pytest tests/ -m offline -v --tb=short
+      run: >-
+        uv run --no-sync pytest tests/ -m offline -v --tb=short
+        --junitxml=test-results.xml
+
+    - name: Annotate offline test failures
+      if: steps.offline-tests.outcome == 'failure'
+      run: python scripts/ci_annotate_pytest.py test-results.xml
 
     - name: Upload test results
       if: always()
