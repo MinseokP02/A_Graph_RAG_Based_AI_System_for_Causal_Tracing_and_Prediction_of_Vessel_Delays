@@ -14,4 +14,3 @@ Set-Location -LiteralPath $repoRoot
     --region korea `
     --output $outputPath `
     --max-messages 0 *>> $logPath
-

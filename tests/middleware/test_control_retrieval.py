@@ -20,6 +20,7 @@ def test_enrich_reports_with_bounded_control_events():
     tx = AsyncMock()
     tx.run.side_effect = [summary, details, events]
     session = AsyncMock()
+
     async def execute_read(callback):
         return await callback(tx)
 

@@ -20,6 +20,7 @@ from middleware.utils import Stats
 def test_reimport_native_datetime_and_rollback(row):
     """Import twice, assert graph cardinalities/types, and roll back a bad batch."""
     from neo4j.exceptions import Neo4jError
+
     prefix = "middleware-test-" + uuid4().hex
     row.update(
         record_id=prefix,

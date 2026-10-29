@@ -15,14 +15,12 @@ API_KEY = os.getenv("AISSTREAM_API_KEY")
 AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream"
 
 # 처음 테스트는 부산항보다 조금 넓게 잡는 것을 추천
-BUSAN_BBOX = [
-    [[34.70, 128.40], [35.60, 129.70]]
-]
+BUSAN_BBOX = [[[34.70, 128.40], [35.60, 129.70]]]
 
 SUBSCRIBE_MESSAGE = {
     "APIKey": API_KEY,
     "BoundingBoxes": BUSAN_BBOX,
-    "FilterMessageTypes": ["PositionReport"]
+    "FilterMessageTypes": ["PositionReport"],
 }
 
 
@@ -47,8 +45,14 @@ def parse_message(message_json):
     print("message_type:", message_type)
     print("mmsi:", metadata.get("MMSI") or body.get("UserID"))
     print("ship_name:", metadata.get("ShipName"))
-    print("lat:", metadata.get("Latitude") or metadata.get("latitude") or body.get("Latitude"))
-    print("lon:", metadata.get("Longitude") or metadata.get("longitude") or body.get("Longitude"))
+    print(
+        "lat:",
+        metadata.get("Latitude") or metadata.get("latitude") or body.get("Latitude"),
+    )
+    print(
+        "lon:",
+        metadata.get("Longitude") or metadata.get("longitude") or body.get("Longitude"),
+    )
 
     if message_type == "PositionReport":
         print("sog:", body.get("Sog"))
@@ -91,14 +95,14 @@ async def stream_forever():
 
         except (ConnectionClosed, ConnectionClosedError) as e:
             retry += 1
-            wait = min(60, 2 ** retry) + random.uniform(0, 1)
+            wait = min(60, 2**retry) + random.uniform(0, 1)
             print(f"[WARN] WebSocket disconnected: {e}")
             print(f"[INFO] Reconnecting in {wait:.1f} seconds...")
             await asyncio.sleep(wait)
 
         except Exception as e:
             retry += 1
-            wait = min(60, 2 ** retry) + random.uniform(0, 1)
+            wait = min(60, 2**retry) + random.uniform(0, 1)
             print(f"[ERROR] Unexpected error: {type(e).__name__}: {e}")
             print(f"[INFO] Reconnecting in {wait:.1f} seconds...")
             await asyncio.sleep(wait)

@@ -9,6 +9,7 @@ from collect_port_calls import collect
 def test_control_cli_parameters_and_empty_header(tmp_path, monkeypatch):
     output = tmp_path / "control.csv"
     captured = {}
+
     def fake_key(path, key_env):
         assert key_env == "MOF_CONTROL_SERVICE_KEY"
         return "test-key"

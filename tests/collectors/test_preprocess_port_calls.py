@@ -15,7 +15,14 @@ class PreprocessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "source.csv"
             row = {key: "" for key in OUTPUT_COLUMNS}
-            row.update(prtAgCd="020", grtg="0", clsgn=" A B ", record_id="id", etryptYear="2026", etryptCo="006")
+            row.update(
+                prtAgCd="020",
+                grtg="0",
+                clsgn=" A B ",
+                record_id="id",
+                etryptYear="2026",
+                etryptCo="006",
+            )
             with path.open("w", encoding="utf-8-sig", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=OUTPUT_COLUMNS + ["extra"])
                 writer.writeheader()

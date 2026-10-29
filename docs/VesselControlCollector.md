@@ -85,4 +85,3 @@ do not establish delay causes; no new delay metrics are inferred.
 `control` is an accepted planner intent for control-history questions; event-date
 and control-code filters remain unsupported.
 Facility-use API collection is not implemented here.
-

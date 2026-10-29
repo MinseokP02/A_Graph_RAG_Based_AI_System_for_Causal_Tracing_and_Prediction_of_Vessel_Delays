@@ -49,7 +49,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    output = args.output or args.input.parent / "processed" / (args.input.stem + "_selected.csv")
+    output = args.output or args.input.parent / "processed" / (
+        args.input.stem + "_selected.csv"
+    )
     if output.resolve() == args.input.resolve():
         parser.error("Output must not replace the source CSV")
     try:
