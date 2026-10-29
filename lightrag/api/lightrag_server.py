@@ -2,90 +2,96 @@
 LightRAG FastAPI Server
 """
 
-from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, Response
-from fastapi.openapi.docs import (
-    get_swagger_ui_html,
-    get_swagger_ui_oauth2_redirect_html,
-)
 import asyncio
 import json
-import os
-import re
 import logging
 import logging.config
+import os
+import re
 import sys
 import textwrap
 import time
 import uuid
-import uvicorn
-import pipmaster as pm
-from typing import Any
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
-from pathlib import Path
-from ascii_colors import ASCIIColors
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Annotated, Any
+
+import pipmaster as pm
+import uvicorn
+from ascii_colors import ASCIIColors
 from dotenv import load_dotenv
-from lightrag.api.utils_api import (
-    get_combined_auth_dependency,
-    get_auth_status_dependency,
-    display_splash_screen,
-    check_env_file,
-    internal_server_error,
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import (
+    get_swagger_ui_html,
+    get_swagger_ui_oauth2_redirect_html,
 )
-from lightrag.api.admission_middleware import AdmissionMiddleware
-from lightrag.api.body_limit_middleware import BodyLimitMiddleware, resolve_body_limits
-from .config import (
-    global_args,
-    normalize_api_prefix,
-    update_uvicorn_mode_config,
-    get_default_host,
-    resolve_asymmetric_embedding_opt_in,
-    PREFIX_ASYMMETRIC_EMBEDDING_BINDINGS,
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
 )
-from lightrag.utils import get_env_value
-from lightrag import LightRAG, ROLES, RoleLLMConfig, __version__ as core_version
+from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
+
+from lightrag import ROLES, LightRAG, RoleLLMConfig, pipeline_metrics
+from lightrag import __version__ as core_version
 from lightrag.api import __api_version__
-from lightrag.utils import EmbeddingFunc
-from lightrag.constants import (
-    DEFAULT_LOG_MAX_BYTES,
-    DEFAULT_LOG_BACKUP_COUNT,
-    DEFAULT_LOG_FILENAME,
-)
+from lightrag.api.admission_middleware import AdmissionMiddleware
+from lightrag.api.auth import auth_handler
+from lightrag.api.body_limit_middleware import BodyLimitMiddleware, resolve_body_limits
+from lightrag.api.login_rate_limit import LoginRateLimiter
 from lightrag.api.routers.document_routes import (
     DocumentManager,
     create_document_routes,
 )
+from lightrag.api.routers.graph_routes import create_graph_routes
+from lightrag.api.routers.ollama_api import OllamaAPI
+from lightrag.api.routers.portmis_routes import create_portmis_routes
+from lightrag.api.routers.query_routes import create_query_routes
+from lightrag.api.utils_api import (
+    check_env_file,
+    display_splash_screen,
+    get_auth_status_dependency,
+    get_combined_auth_dependency,
+    internal_server_error,
+)
+from lightrag.constants import (
+    DEFAULT_LOG_BACKUP_COUNT,
+    DEFAULT_LOG_FILENAME,
+    DEFAULT_LOG_MAX_BYTES,
+)
+from lightrag.kg.shared_storage import (
+    # set_default_workspace,
+    cleanup_keyed_lock,
+    drain_reserved_background_tasks,
+    finalize_share_data,
+    get_default_workspace,
+    get_namespace_data,
+    get_pipeline_ingress,
+)
 from lightrag.parser.docx.smart_heading.nlp import SmartHeadingNLPError
+from lightrag.parser.external.mineru.cache import MinerUParserOptions
 from lightrag.parser.plugins import load_third_party_parsers
 from lightrag.parser.routing import (
     parser_rules_from_env,
     validate_parser_routing_config,
     validate_smart_heading_dependencies,
 )
-from lightrag.parser.external.mineru.cache import MinerUParserOptions
-from lightrag.api.routers.query_routes import create_query_routes
-from lightrag.api.routers.graph_routes import create_graph_routes
-from lightrag.api.routers.ollama_api import OllamaAPI
-
-from lightrag.utils import logger, set_verbose_debug
-from lightrag.kg.shared_storage import (
-    get_namespace_data,
-    get_default_workspace,
-    # set_default_workspace,
-    cleanup_keyed_lock,
-    drain_reserved_background_tasks,
-    finalize_share_data,
-    get_pipeline_ingress,
-)
-from lightrag import pipeline_metrics
+from lightrag.utils import EmbeddingFunc, get_env_value, logger, set_verbose_debug
 from lightrag.utils_pipeline import describe_doc_status_capabilities
-from fastapi.security import OAuth2PasswordRequestForm
-from lightrag.api.auth import auth_handler
-from lightrag.api.login_rate_limit import LoginRateLimiter
+
+from .config import (
+    PREFIX_ASYMMETRIC_EMBEDDING_BINDINGS,
+    get_default_host,
+    global_args,
+    normalize_api_prefix,
+    resolve_asymmetric_embedding_opt_in,
+    update_uvicorn_mode_config,
+)
 
 # use the .env that is inside the current folder
 # allows to use different .env file for each lightrag instance
@@ -496,7 +502,7 @@ def _build_mineru_status() -> dict[str, Any]:
     if api_mode in ("official", "local"):
         try:
             opts = MinerUParserOptions.from_env(api_mode=api_mode)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- splash diagnostics must never block startup
             opts = None
         if opts is not None:
             options = {
@@ -978,7 +984,7 @@ def create_optimized_embedding_function(
                         kwargs["document_prefix"] = document_prefix
                 return await actual_func(**kwargs)
         except ImportError as e:
-            raise Exception(f"Failed to import {binding} embedding: {e}")
+            raise RuntimeError(f"Failed to import {binding} embedding: {e}") from e
 
     # Step 4: Wrap in EmbeddingFunc and return
     embedding_func_instance = EmbeddingFunc(
@@ -998,7 +1004,9 @@ def create_optimized_embedding_function(
         and binding in PREFIX_ASYMMETRIC_EMBEDDING_BINDINGS
         and (document_prefix or query_prefix)
     ):
-        prefix_info = f" document_prefix={repr(document_prefix)} query_prefix={repr(query_prefix)}"
+        prefix_info = (
+            f" document_prefix={document_prefix!r} query_prefix={query_prefix!r}"
+        )
     logger.info(
         f"Embedding config: binding={binding} model={model} "
         f"embedding_dim={final_embedding_dim} max_token_size={final_max_token_size}{prefix_info}"
@@ -1095,7 +1103,7 @@ def _log_role_provider_options(rag: Any) -> None:
     """Log sanitized provider options for every role LLM."""
     try:
         role_configs = rag.get_llm_role_config()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- optional startup diagnostics
         logger.warning(f"Failed to read role LLM configuration for logging: {e}")
         return
 
@@ -1203,11 +1211,10 @@ def check_frontend_build():
 
         # Check source code files in src directory
         for file_path in src_dir.rglob("*"):
-            if file_path.is_file():
-                # Only check source code files, ignore temporary files and logs
-                if file_path.suffix.lower() in source_extensions:
-                    mtime = file_path.stat().st_mtime
-                    latest_source_time = max(latest_source_time, mtime)
+            # Only check source code files, ignore temporary files and logs.
+            if file_path.is_file() and file_path.suffix.lower() in source_extensions:
+                mtime = file_path.stat().st_mtime
+                latest_source_time = max(latest_source_time, mtime)
 
         # Check key configuration files
         for key_file in key_files:
@@ -1243,7 +1250,7 @@ def check_frontend_build():
             logger.info("Frontend build is up-to-date")
             return (True, False)  # Assets exist, up-to-date
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- freshness checks are advisory
         # If check fails, log warning but don't affect startup
         logger.warning(f"Failed to check frontend source freshness: {e}")
         return (True, False)  # Assume assets exist and up-to-date on error
@@ -1260,7 +1267,7 @@ def _build_capability_status(rag) -> dict:
         return {}
     try:
         return describe_doc_status_capabilities(doc_status)
-    except Exception as capability_error:  # pragma: no cover - defensive
+    except Exception as capability_error:  # noqa: BLE001  # pragma: no cover - defensive
         logger.debug(f"Capability probe unavailable for /health: {capability_error}")
         return {}
 
@@ -1333,7 +1340,7 @@ def _create_llm_model_kwargs(binding: str, args, llm_timeout: int) -> dict:
 
             options = OllamaLLMOptions.options_dict(args)
         except ImportError as e:
-            raise Exception(f"Failed to import {binding} options: {e}")
+            raise RuntimeError(f"Failed to import {binding} options: {e}") from e
         # Imported lazily (the module installs the ollama package on import)
         # and only for the binding that actually forwards think= -- lollms
         # never reaches the ollama client.
@@ -1403,7 +1410,7 @@ def create_app(args):
         "bedrock",
         "gemini",
     ]:
-        raise Exception("llm binding not supported")
+        raise ValueError(f"llm binding '{args.llm_binding}' not supported")
 
     if args.embedding_binding not in [
         "lollms",
@@ -1415,7 +1422,7 @@ def create_app(args):
         "gemini",
         "voyageai",
     ]:
-        raise Exception(f"embedding binding '{args.embedding_binding}' not supported")
+        raise ValueError(f"embedding binding '{args.embedding_binding}' not supported")
 
     # Set default hosts if not provided
     if args.llm_binding_host is None:
@@ -1427,13 +1434,15 @@ def create_app(args):
     # Add SSL validation
     if args.ssl:
         if not args.ssl_certfile or not args.ssl_keyfile:
-            raise Exception(
+            raise ValueError(
                 "SSL certificate and key files must be provided when SSL is enabled"
             )
         if not os.path.exists(args.ssl_certfile):
-            raise Exception(f"SSL certificate file not found: {args.ssl_certfile}")
+            raise FileNotFoundError(
+                f"SSL certificate file not found: {args.ssl_certfile}"
+            )
         if not os.path.exists(args.ssl_keyfile):
-            raise Exception(f"SSL key file not found: {args.ssl_keyfile}")
+            raise FileNotFoundError(f"SSL key file not found: {args.ssl_keyfile}")
 
     # Check if API key is provided either through env var or args
     api_key = os.getenv("LIGHTRAG_API_KEY") or args.key
@@ -1850,7 +1859,7 @@ def create_app(args):
                 # Use optimized function with pre-processed configuration
                 return create_optimized_openai_llm_func(config_cache, args, llm_timeout)
         except ImportError as e:
-            raise Exception(f"Failed to import {binding} LLM binding: {e}")
+            raise RuntimeError(f"Failed to import {binding} LLM binding: {e}") from e
 
     def resolve_role_llm_settings(
         role: str, override_meta: dict | None = None
@@ -2148,7 +2157,7 @@ def create_app(args):
 
             return role_openai_complete
         except ImportError as e:
-            raise Exception(f"Failed to create LLM for role '{role}': {e}")
+            raise RuntimeError(f"Failed to create LLM for role '{role}': {e}") from e
 
     def create_role_llm_model_kwargs(
         role: str, override_meta: dict | None = None
@@ -2209,11 +2218,11 @@ def create_app(args):
     rerank_model_func = None
     if args.rerank_binding != "null":
         from lightrag.rerank import (
-            cohere_rerank,
-            jina_rerank,
-            ali_rerank,
             DEFAULT_RERANK_MAX_TOKENS_PER_DOC,
             MIN_PRACTICAL_RERANK_MAX_TOKENS,
+            ali_rerank,
+            cohere_rerank,
+            jina_rerank,
         )
 
         # Map rerank binding to corresponding function
@@ -2279,7 +2288,10 @@ def create_app(args):
                 )
 
         async def server_rerank_func(
-            query: str, documents: list, top_n: int = None, extra_body: dict = None
+            query: str,
+            documents: list,
+            top_n: int | None = None,
+            extra_body: dict | None = None,
         ):
             """Server rerank function with configuration from environment variables"""
             # Prepare kwargs for rerank function
@@ -2415,6 +2427,7 @@ def create_app(args):
     app.include_router(create_document_routes(rag, doc_manager, api_key))
     app.include_router(create_query_routes(rag, api_key, args.top_k))
     app.include_router(create_graph_routes(rag, api_key))
+    app.include_router(create_portmis_routes(api_key))
 
     # Add Ollama API routes
     ollama_api = OllamaAPI(rag, top_k=args.top_k, api_key=api_key)
@@ -2523,7 +2536,10 @@ def create_app(args):
     )
 
     @app.post("/login")
-    async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    async def login(
+        request: Request,
+        form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    ):
         if not auth_handler.accounts:
             # Authentication not configured, return guest token
             guest_token = auth_handler.create_token(
@@ -2701,7 +2717,7 @@ def create_app(args):
                 ingress_counts = dict(
                     (await get_pipeline_ingress(workspace)).counts() or {}
                 )
-            except Exception as ingress_error:
+            except Exception as ingress_error:  # noqa: BLE001 -- optional health detail
                 logger.debug(f"Ingress counts unavailable for /health: {ingress_error}")
 
             if not auth_configured:
@@ -2825,8 +2841,8 @@ def create_app(args):
                 }
             )
             return status_data
-        except Exception as e:
-            logger.error(f"Error getting health status: {str(e)}")
+        except Exception as e:  # noqa: BLE001 -- sanitize the API error boundary
+            logger.error(f"Error getting health status: {e!s}")
             raise internal_server_error(e)
 
     # Pre-render the runtime-config <script> once. The browser-visible URL
@@ -2860,10 +2876,9 @@ def create_app(args):
             # rewrites it to index.html internally) — match on media_type
             # too so we still inject in that case.
             is_html = (
-                path.endswith(".html")
+                path.endswith((".html", "/"))
                 or path == ""
-                or path.endswith("/")
-                or getattr(response, "media_type", None) == "text/html"
+                or (getattr(response, "media_type", None) == "text/html")
             )
 
             if (

@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, Header, HTTPException
 
+from .forecast import TFTClient
 from .query_config import QueryConfig
 from .query_models import AskRequest
 from .rag_service import DocumentRetriever, QwenClient, RagService, UpstreamError
@@ -51,6 +52,7 @@ def create_app(
                     QwenClient(http, config),
                     DocumentRetriever(http, config),
                     config,
+                    forecaster=TFTClient(http, config),
                 )
                 yield
         finally:

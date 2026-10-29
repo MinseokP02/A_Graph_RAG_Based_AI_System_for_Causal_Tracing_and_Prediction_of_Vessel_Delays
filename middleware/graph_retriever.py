@@ -5,12 +5,35 @@ from zoneinfo import ZoneInfo
 
 from .query_config import QueryConfig
 from .query_models import QueryPlan
-from .utils import name
+from .utils import name, vessel_key
 
 MATCH = """
 MATCH (v:Vessel)-[:MADE_PORT_CALL]->(pc:PortCall)
 WHERE ($call_sign IS NULL OR v.callSign = $call_sign)
   AND ($vessel_name IS NULL OR v.name = $vessel_name)
+  AND ($port_code IS NULL OR EXISTS {
+    MATCH (pc)-[:AT_PORT]->(p:Port) WHERE p.code = $port_code })
+  AND ($port_name IS NULL OR EXISTS {
+    MATCH (pc)-[:AT_PORT]->(p:Port) WHERE p.name = $port_name })
+  AND ($berth_name IS NULL OR EXISTS {
+    MATCH (pc)-[:BERTHED_AT]->(b:Berth) WHERE b.name = $berth_name })
+WITH DISTINCT v, pc,
+  CASE $date_basis WHEN 'arrival' THEN pc.arrivalTime
+    WHEN 'departure' THEN pc.departureTime
+    ELSE coalesce(pc.arrivalTime, pc.departureTime) END AS eventTime
+WHERE ($start IS NULL OR eventTime >= datetime($start))
+  AND ($end IS NULL OR eventTime < datetime($end))
+"""
+
+# Keeping the optional call-sign predicate in MATCH prevents Neo4j from reliably
+# selecting the unique Vessel(vesselKey) index on larger imports. Use this
+# constant-only query variant when a call sign is present; input stays parameterized.
+CALL_SIGN_MATCH = """
+MATCH (v:Vessel {vesselKey: $vessel_key})
+WHERE v.callSign = $call_sign
+WITH v
+MATCH (v)-[:MADE_PORT_CALL]->(pc:PortCall)
+WHERE ($vessel_name IS NULL OR v.name = $vessel_name)
   AND ($port_code IS NULL OR EXISTS {
     MATCH (pc)-[:AT_PORT]->(p:Port) WHERE p.code = $port_code })
   AND ($port_name IS NULL OR EXISTS {
@@ -49,11 +72,22 @@ RETURN v.callSign AS callSign, v.name AS vesselName,
        [(pc)-[:PREVIOUS_PORT]->(p:Port) | p{.code, .name}] AS previousPorts,
        [(pc)-[:NEXT_PORT]->(p:Port) | p{.code, .name}] AS nextPorts,
        [(pc)-[:DESTINATION_PORT]->(p:Port) | p{.code, .name}] AS destinations,
-       [(pc)-[:BERTHED_AT]->(b:Berth) | b{.code, .subCode, .name}] AS berths
+       [(pc)-[:BERTHED_AT]->(b:Berth) | b{.code, .subCode, .name}] AS berths,
+       [(pc)-[:HAS_DEPARTURE_WEATHER]->(w:WeatherObservation) |
+         w{weatherTime: toString(w.observedAt), .temperatureC, .windSpeedMs,
+           .rainMm, .portCode, .source, .datasetType}] AS departureWeather
 ORDER BY eventTime, pc.recordId
 LIMIT $limit
 """
 )
+
+
+def retrieval_queries(plan: QueryPlan) -> tuple[str, str]:
+    """Choose an index-friendly, constant query template for exact call signs."""
+    match = CALL_SIGN_MATCH if plan.call_sign else MATCH
+    summary_tail = SUMMARY[len(MATCH) :]
+    details_tail = DETAILS[len(MATCH) :]
+    return match + summary_tail, match + details_tail
 
 
 CONTROL_EVENTS = """
@@ -101,6 +135,7 @@ def parameters(plan: QueryPlan, limit: int, timezone: str) -> dict:
         else None,
         "delayed_only": plan.intent == "delays",
         "limit": limit,
+        "vessel_key": vessel_key(plan.call_sign, None),
     }
 
 
@@ -114,15 +149,16 @@ class GraphRetriever:
     async def retrieve(self, plan: QueryPlan, limit: int) -> dict:
         """Return counts over the filter and a bounded, deterministic record sample."""
         params = parameters(plan, limit, self.config.timezone)
+        summary_query, details_query = retrieval_queries(plan)
         async with self.driver.session(
             database=self.config.neo4j_database, default_access_mode="READ"
         ) as session:
 
             async def read(tx):
                 """Run both read queries in one managed transaction."""
-                summary_result = await tx.run(SUMMARY, **params)
+                summary_result = await tx.run(summary_query, **params)
                 summary = dict(await summary_result.single())
-                detail_result = await tx.run(DETAILS, **params)
+                detail_result = await tx.run(details_query, **params)
                 details = await detail_result.data()
                 if details:
                     event_result = await tx.run(
@@ -137,9 +173,9 @@ class GraphRetriever:
                         event_data = events_by_report.get(record["recordId"], {})
                         record["controlEvents"] = event_data.get("events", [])
                         record["controlEventCount"] = event_data.get("total", 0)
-                        record["controlEventsTruncated"] = (
-                            record["controlEventCount"] > len(record["controlEvents"])
-                        )
+                        record["controlEventsTruncated"] = record[
+                            "controlEventCount"
+                        ] > len(record["controlEvents"])
                 return {"summary": summary, "records": details}
 
             # Managed transaction timeout covers both queries, including scanning.

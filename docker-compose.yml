@@ -12,6 +12,7 @@ services:
       - ./data/rag_storage:/app/data/rag_storage
       - ./data/inputs:/app/data/inputs
       - ./data/prompts:/app/data/prompts
+      - ./data/ais:/app/data/ais:ro
       - ./.env:/app/.env
     deploy:
       restart_policy:

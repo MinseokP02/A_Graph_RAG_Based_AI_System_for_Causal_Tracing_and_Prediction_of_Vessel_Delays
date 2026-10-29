@@ -1,4 +1,5 @@
 #!/bin/sh
+# Keep this file LF-only: CRLF makes the Linux shebang resolve as /bin/sh\r.
 set -e
 
 # Run the server as the non-root "lightrag" user (CIS Docker 4.1) while staying

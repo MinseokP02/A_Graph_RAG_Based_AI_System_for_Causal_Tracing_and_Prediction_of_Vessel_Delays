@@ -1,5 +1,6 @@
 """Export the domain graph into a grounded LightRAG custom-KG payload."""
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ KEYS = {
     "Port": "portKey",
     "Berth": "berthKey",
     "ControlEvent": "eventId",
+    "WeatherObservation": "observationKey",
 }
 RELATIONS = [
     "MADE_PORT_CALL",
@@ -26,6 +28,8 @@ RELATIONS = [
     "BERTHED_AT",
     "HAS_BERTH",
     "HAS_CONTROL_EVENT",
+    "HAS_DEPARTURE_WEATHER",
+    "OBSERVED_AT",
 ]
 
 
@@ -71,9 +75,12 @@ def convert(nodes, relations):
         relation = group[0]
         src, dst = names[relation["src"]], names[relation["dst"]]
         kind = ",".join(sorted({r["kind"] for r in group}))
-        description = "\n".join(
-            f"{names[r['src']]} --{r['kind']}--> {names[r['dst']]}" for r in group
-        ) + ". Recorded relationships; not proof of delay causality."
+        description = (
+            "\n".join(
+                f"{names[r['src']]} --{r['kind']}--> {names[r['dst']]}" for r in group
+            )
+            + ". Recorded relationships; not proof of delay causality."
+        )
         source = "portmis-rel-" + hashlib.sha256(description.encode()).hexdigest()
         result["chunks"].append(
             {
@@ -95,7 +102,49 @@ def convert(nodes, relations):
     return result
 
 
+def weather_delta(payload):
+    """Keep new weather entities/relations while referring to existing graph endpoints."""
+    prefix = "PORTMIS:WeatherObservation:"
+    entities = [e for e in payload["entities"] if e["entity_name"].startswith(prefix)]
+    relationships = [
+        r
+        for r in payload["relationships"]
+        if r["src_id"].startswith(prefix) or r["tgt_id"].startswith(prefix)
+    ]
+    source_ids = {e["source_id"] for e in entities} | {
+        r["source_id"] for r in relationships
+    }
+    return {
+        "chunks": [c for c in payload["chunks"] if c["source_id"] in source_ids],
+        "entities": entities,
+        "relationships": relationships,
+    }
+
+
+def entity_neighborhood(payload, root):
+    """Export one entity and its one-hop facts for a small incremental refresh."""
+    relationships = [
+        r for r in payload["relationships"] if root in (r["src_id"], r["tgt_id"])
+    ]
+    names = {root}
+    for relation in relationships:
+        names.update((relation["src_id"], relation["tgt_id"]))
+    entities = [e for e in payload["entities"] if e["entity_name"] in names]
+    source_ids = {e["source_id"] for e in entities} | {
+        r["source_id"] for r in relationships
+    }
+    return {
+        "chunks": [c for c in payload["chunks"] if c["source_id"] in source_ids],
+        "entities": entities,
+        "relationships": relationships,
+    }
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--weather-only", action="store_true")
+    parser.add_argument("--root-entity")
+    args = parser.parse_args()
     load_dotenv(Path(__file__).with_name(".env"), override=False)
     config = Config.from_env(Path("unused.csv"))
     with Neo4jClient(config) as client:  # noqa: SIM117 - explicit driver lifecycle
@@ -105,7 +154,11 @@ def main():
 
             def read(tx):
                 nodes = tx.run(
-                    "MATCH (n) UNWIND labels(n) AS label WITH n,label WHERE label IN $labels RETURN elementId(n) AS id,label,properties(n) AS props",
+                    "MATCH (n) UNWIND labels(n) AS label WITH n,label "
+                    "WHERE label IN $labels AND "
+                    "(label <> 'WeatherObservation' OR "
+                    "EXISTS { MATCH (:PortCall)-[:HAS_DEPARTURE_WEATHER]->(n) }) "
+                    "RETURN elementId(n) AS id,label,properties(n) AS props",
                     labels=list(KEYS),
                 ).data()
                 ids = [n["id"] for n in nodes]
@@ -117,7 +170,17 @@ def main():
                 return convert(nodes, relations)
 
             payload = session.execute_read(read)
-    path = Path("data/portmis_custom_kg.json")
+    if args.weather_only:
+        payload = weather_delta(payload)
+    elif args.root_entity:
+        payload = entity_neighborhood(payload, args.root_entity)
+    path = Path(
+        "data/portmis_weather_custom_kg.json"
+        if args.weather_only
+        else "data/portmis_entity_custom_kg.json"
+        if args.root_entity
+        else "data/portmis_custom_kg.json"
+    )
     path.write_text(
         json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8"
     )

@@ -11,7 +11,14 @@ class QueryPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     intent: Literal[
-        "visits", "routes", "berths", "delays", "cargo", "count", "control"
+        "visits",
+        "routes",
+        "berths",
+        "delays",
+        "cargo",
+        "count",
+        "control",
+        "delay_forecast",
     ] = "visits"
     call_sign: str | None = Field(default=None, min_length=1, max_length=100)
     vessel_name: str | None = Field(default=None, min_length=1, max_length=200)
@@ -38,6 +45,9 @@ class AskRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     question: str = Field(min_length=3, max_length=2000)
+    mode: Literal["naive", "hybrid", "neo4j_mix"] = "neo4j_mix"
     plan: QueryPlan | None = None
     use_documents: bool = True
     max_records: int = Field(default=10, ge=1, le=50)
+    forecast_steps: int = Field(default=1, ge=1, le=24)
+    delay_threshold_minutes: float = Field(default=60.0, ge=0, le=10080)

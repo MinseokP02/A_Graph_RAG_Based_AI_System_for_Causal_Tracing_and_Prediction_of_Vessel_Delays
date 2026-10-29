@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import csv
 import json
@@ -5,12 +6,11 @@ import os
 import random
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import websockets
 from dotenv import load_dotenv
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError
-
 
 load_dotenv()
 
@@ -19,30 +19,38 @@ AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream"
 
 # 부산항 근처 bbox
 # 데이터가 너무 안 들어오면 범위를 조금 넓히세요.
-BUSAN_PORT_BBOX = [
-    # [[34.70, 128.40], [35.60, 129.70]]
-    [[33.00, 124.00], [39.00, 132.00]]  # Korea nearby waters
-]
+REGION_BOUNDING_BOXES = {
+    "korea": [[[39.00, 124.00], [33.00, 132.00]]],
+    "busan": [[[35.60, 128.40], [34.70, 129.70]]],
+    "incheon": [[[38.00, 126.00], [36.80, 127.00]]],
+}
+BUSAN_PORT_BBOX = REGION_BOUNDING_BOXES["busan"]
 
 FILTER_MESSAGE_TYPES = [
-    "PositionReport"
+    "PositionReport",
+    "StandardClassBPositionReport",
+    "ExtendedClassBPositionReport",
+    "ShipStaticData",
+    "StaticDataReport",
 ]
 
-OUTPUT_CSV = "ais_stream_second.csv"
+OUTPUT_CSV = "data/ais/korea_ais_stream.csv"
 
 # 몇 개마다 로그를 찍을지 설정
 # 1이면 데이터가 들어올 때마다 매번 출력
-LOG_EVERY = 1
+LOG_EVERY = 100
 
 # 메시지가 없을 때 대기 로그 출력 주기, 초 단위
 WAIT_TIMEOUT_SECONDS = 30
 
 CSV_FIELDS = [
-    "time_utc"
+    "time_utc",
     "received_at_utc",
     "message_type",
     "mmsi",
     "ship_name",
+    "call_sign",
+    "imo_number",
     "latitude",
     "longitude",
     "sog",
@@ -55,7 +63,7 @@ CSV_FIELDS = [
 ]
 
 
-def safe_get(data: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+def safe_get(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
     cur: Any = data
     for key in keys:
         if not isinstance(cur, dict):
@@ -66,13 +74,13 @@ def safe_get(data: Dict[str, Any], *keys: str, default: Any = None) -> Any:
     return cur
 
 
-def get_message_body(message: Dict[str, Any]) -> Dict[str, Any]:
+def get_message_body(message: dict[str, Any]) -> dict[str, Any]:
     message_type = message.get("MessageType")
     body = safe_get(message, "Message", message_type, default={})
     return body if isinstance(body, dict) else {}
 
 
-def normalize_ais_message(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def normalize_ais_message(message: dict[str, Any]) -> dict[str, Any] | None:
     message_type = message.get("MessageType")
 
     # 구독 확인 메시지는 AIS 데이터가 아니므로 CSV 저장하지 않음
@@ -84,7 +92,6 @@ def normalize_ais_message(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     metadata = message.get("MetaData") or {}
     body = get_message_body(message)
 
-    report_a = body.get("ReportA", {}) if isinstance(body.get("ReportA"), dict) else {}
     report_b = body.get("ReportB", {}) if isinstance(body.get("ReportB"), dict) else {}
 
     dimension = body.get("Dimension", {})
@@ -95,26 +102,35 @@ def normalize_ais_message(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "time_utc": metadata.get("time_utc"),
         "received_at_utc": datetime.now(timezone.utc).isoformat(),
         "message_type": message_type,
-
         "mmsi": metadata.get("MMSI") or body.get("UserID") or body.get("Mmsi"),
-        "ship_name": metadata.get("ShipName") or body.get("Name") or body.get("ShipName"),
-
-        "latitude": body.get("Latitude") or metadata.get("latitude") or metadata.get("Latitude"),
-        "longitude": body.get("Longitude") or metadata.get("longitude") or metadata.get("Longitude"),
-
+        "ship_name": metadata.get("ShipName")
+        or body.get("Name")
+        or body.get("ShipName"),
+        "call_sign": body.get("CallSign") or report_b.get("CallSign"),
+        "imo_number": body.get("ImoNumber")
+        or body.get("IMONumber")
+        or report_b.get("ImoNumber"),
+        "latitude": body.get("Latitude")
+        or metadata.get("latitude")
+        or metadata.get("Latitude"),
+        "longitude": body.get("Longitude")
+        or metadata.get("longitude")
+        or metadata.get("Longitude"),
         "sog": body.get("Sog"),
         "cog": body.get("Cog"),
         "true_heading": body.get("TrueHeading"),
         "navigational_status": body.get("NavigationalStatus"),
-
         "destination": body.get("Destination") or report_b.get("Destination"),
-        "eta": body.get("Eta") or body.get("ETA") or report_b.get("Eta") or report_b.get("ETA"),
+        "eta": body.get("Eta")
+        or body.get("ETA")
+        or report_b.get("Eta")
+        or report_b.get("ETA"),
         "ship_type": body.get("ShipType") or report_b.get("ShipType"),
     }
     return row
 
 
-def print_row_log(row: Dict[str, Any], saved_count: int) -> None:
+def print_row_log(row: dict[str, Any], saved_count: int) -> None:
     print(
         f"[SAVE {saved_count:06d}] "
         f"type={row.get('message_type')} | "
@@ -130,7 +146,8 @@ def print_row_log(row: Dict[str, Any], saved_count: int) -> None:
 
 async def collect_once(
     output_csv: str,
-    max_messages: Optional[int],
+    max_messages: int | None,
+    bounding_boxes: list[list[list[float]]] | None = None,
     saved_start_count: int = 0,
 ) -> int:
     if not AISSTREAM_API_KEY:
@@ -140,11 +157,12 @@ async def collect_once(
         )
 
     output_path = Path(output_csv)
-    file_exists = output_path.exists()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    file_has_content = output_path.exists() and output_path.stat().st_size > 0
 
     subscription_message = {
         "APIKey": AISSTREAM_API_KEY,
-        "BoundingBoxes": BUSAN_PORT_BBOX,
+        "BoundingBoxes": bounding_boxes or REGION_BOUNDING_BOXES["korea"],
         "FilterMessageTypes": FILTER_MESSAGE_TYPES,
     }
 
@@ -162,13 +180,19 @@ async def collect_once(
         print("[INFO] AISStream connected.")
         print(f"[INFO] Saving to: {output_path.resolve()}")
         print(f"[INFO] BoundingBoxes: {subscription_message['BoundingBoxes']}")
-        print(f"[INFO] FilterMessageTypes: {subscription_message['FilterMessageTypes']}")
+        print(
+            f"[INFO] FilterMessageTypes: {subscription_message['FilterMessageTypes']}"
+        )
 
-        with output_path.open("a", newline="", encoding="utf-8-sig") as f:
+        # Keep one ordered stream open; each small write is flushed immediately.
+        with output_path.open(  # noqa: ASYNC230
+            "a", newline="", encoding="utf-8-sig"
+        ) as f:
             writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
 
-            if not file_exists:
+            if not file_has_content:
                 writer.writeheader()
+                f.flush()
 
             while True:
                 try:
@@ -179,7 +203,9 @@ async def collect_once(
 
                 except asyncio.TimeoutError:
                     now = datetime.now(timezone.utc).isoformat()
-                    print(f"[WAIT] {now} - {WAIT_TIMEOUT_SECONDS}초 동안 수신된 AIS 메시지가 없습니다.")
+                    print(
+                        f"[WAIT] {now} - {WAIT_TIMEOUT_SECONDS}초 동안 수신된 AIS 메시지가 없습니다."
+                    )
                     continue
 
                 if isinstance(message_json, bytes):
@@ -204,14 +230,15 @@ async def collect_once(
                         print(f"[DONE] Finished. Saved {saved_count} AIS messages.")
                         return saved_count
 
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 -- skip one malformed upstream payload
                     print(f"[ERROR] Failed to process message: {type(e).__name__}: {e}")
                     print(f"[ERROR] Raw preview: {str(message_json)[:500]}")
 
 
 async def collect_forever(
     output_csv: str = OUTPUT_CSV,
-    max_messages: Optional[int] = 1000,
+    max_messages: int | None = 1000,
+    bounding_boxes: list[list[list[float]]] | None = None,
 ) -> None:
     retry = 0
     saved_count = 0
@@ -221,6 +248,7 @@ async def collect_forever(
             saved_count = await collect_once(
                 output_csv=output_csv,
                 max_messages=max_messages,
+                bounding_boxes=bounding_boxes,
                 saved_start_count=saved_count,
             )
 
@@ -236,26 +264,68 @@ async def collect_forever(
 
         except (ConnectionClosed, ConnectionClosedError) as e:
             retry += 1
-            wait = min(60, 2 ** retry) + random.uniform(0, 1)
+            wait = min(60, 2**retry) + random.uniform(0, 1)
             print(f"[WARN] WebSocket disconnected: {e}")
             print(f"[INFO] Reconnecting in {wait:.1f} seconds...")
             await asyncio.sleep(wait)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- reconnect after unexpected runtime failures
             retry += 1
-            wait = min(60, 2 ** retry) + random.uniform(0, 1)
+            wait = min(60, 2**retry) + random.uniform(0, 1)
             print(f"[ERROR] Unexpected error: {type(e).__name__}: {e}")
             print(f"[INFO] Reconnecting in {wait:.1f} seconds...")
             await asyncio.sleep(wait)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Continuously collect AISStream messages around Korea."
+    )
+    parser.add_argument(
+        "--region",
+        choices=tuple(REGION_BOUNDING_BOXES),
+        default="korea",
+        help="Collection area (default: korea)",
+    )
+    parser.add_argument("--output", help="CSV output path; defaults to the region name")
+    parser.add_argument(
+        "--max-messages",
+        type=int,
+        default=0,
+        help="Stop after this many messages; 0 means collect continuously",
+    )
+    parser.add_argument(
+        "--duration-seconds",
+        type=float,
+        default=0,
+        help="Stop after this many wall-clock seconds; 0 means no time limit",
+    )
+    args = parser.parse_args()
+    if args.max_messages < 0:
+        parser.error("--max-messages must be zero or positive")
+    if args.duration_seconds < 0:
+        parser.error("--duration-seconds must be zero or positive")
+    if not args.output:
+        args.output = f"data/ais/{args.region}_ais_stream.csv"
+    return args
+
+
 if __name__ == "__main__":
+    args = parse_args()
     try:
-        asyncio.run(
-            collect_forever(
-                output_csv=OUTPUT_CSV,
-                max_messages=1000,
-            )
+        collector = collect_forever(
+            output_csv=args.output,
+            max_messages=args.max_messages or None,
+            bounding_boxes=REGION_BOUNDING_BOXES[args.region],
         )
+        if args.duration_seconds:
+            try:
+                asyncio.run(asyncio.wait_for(collector, timeout=args.duration_seconds))
+            except asyncio.TimeoutError:
+                print(
+                    f"[DONE] Reached {args.duration_seconds:g}-second collection limit."
+                )
+        else:
+            asyncio.run(collector)
     except KeyboardInterrupt:
         print("\n[STOP] 사용자에 의해 종료되었습니다.")

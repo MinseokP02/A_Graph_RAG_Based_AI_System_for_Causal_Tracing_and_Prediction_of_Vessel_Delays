@@ -9,7 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from middleware.graph_retriever import DETAILS, SUMMARY, parameters
+from middleware.graph_retriever import (
+    CALL_SIGN_MATCH,
+    DETAILS,
+    SUMMARY,
+    parameters,
+    retrieval_queries,
+)
 from middleware.query_api import create_app
 from middleware.query_config import QueryConfig
 from middleware.query_models import AskRequest, QueryPlan
@@ -68,12 +74,81 @@ def test_combined_context_and_sampling():
     assert payload["summary"]["matchingRecords"] == 3
 
 
+def test_count_answer_uses_full_graph_summary_without_llm_sample_confusion():
+    service, graph, qwen, docs = dependencies()
+    graph.retrieve.return_value["summary"]["matchingRecords"] = 44
+    response = asyncio.run(
+        service.ask(
+            AskRequest(
+                question="D7DZ 출항 기록은 몇 건이야?",
+                plan=QueryPlan(intent="count", call_sign="D7DZ"),
+                use_documents=False,
+            )
+        )
+    )
+    qwen.chat.assert_not_awaited()
+    docs.retrieve.assert_not_awaited()
+    assert "44건" in response["answer"]
+    assert "D7DZ" in response["answer"]
+    assert response["graph"]["summary"]["matchingRecords"] == 44
+
+
+def test_answer_prompt_requires_weather_and_causality_limits_for_delay_analysis():
+    service, _graph, qwen, _docs = dependencies()
+    asyncio.run(
+        service.ask(
+            AskRequest(
+                question="호출부호 A8XY6 선박의 지연 원인을 분석해줘.",
+                plan=QueryPlan(intent="delays", call_sign="A8XY6"),
+            )
+        )
+    )
+    system = qwen.chat.await_args.args[0]
+    payload = qwen.chat.await_args.args[1]
+    assert "delayPairingMethod가 기록된 PortCall" in system
+    assert "기온, 풍속, 강우량을 모두 빠짐없이" in system
+    assert "인과관계로 단정할 수 없다" in system
+    assert "구분 | 내용 | 근거 | 확실성" in system
+    assert "구분을 `추측`으로 표시" in system
+    assert len(payload["mandatory_answer_requirements"]) == 7
+    assert "departureDelayMinutes" in payload["mandatory_answer_requirements"][0]
+
+
+@pytest.mark.parametrize("mode", ["naive", "hybrid"])
+def test_document_only_modes_skip_neo4j_and_select_lightrag_mode(mode):
+    service, graph, qwen, docs = dependencies()
+    response = asyncio.run(service.ask(AskRequest(question="선박 조회", mode=mode)))
+    graph.retrieve.assert_not_awaited()
+    qwen.plan.assert_not_awaited()
+    docs.retrieve.assert_awaited_once_with("선박 조회", mode)
+    assert response["mode"] == mode
+    assert response["graph"] == {"summary": {}, "returned_records": 0}
+    assert [row["kind"] for row in response["evidence"]] == ["document"]
+
+
+def test_neo4j_mix_selects_mix_document_retrieval():
+    service, graph, _qwen, docs = dependencies()
+    response = asyncio.run(service.ask(AskRequest(question="선박 조회")))
+    graph.retrieve.assert_awaited_once()
+    docs.retrieve.assert_awaited_once_with("선박 조회", "mix")
+    assert response["mode"] == "neo4j_mix"
+
+
 def test_document_outage_is_explicit():
     service, _graph, _qwen, docs = dependencies()
     docs.retrieve.side_effect = UpstreamError("unavailable")
     response = asyncio.run(service.ask(AskRequest(question="선박 조회")))
     assert response["status"] == "ok"
     assert any("unavailable" in w for w in response["warnings"])
+
+
+def test_document_only_mode_fails_when_its_only_retriever_is_unavailable():
+    service, graph, qwen, docs = dependencies()
+    docs.retrieve.side_effect = UpstreamError("unavailable")
+    with pytest.raises(UpstreamError, match="unavailable"):
+        asyncio.run(service.ask(AskRequest(question="선박 조회", mode="naive")))
+    graph.retrieve.assert_not_awaited()
+    qwen.chat.assert_not_awaited()
 
 
 def test_graph_outage_never_generates_an_answer():
@@ -118,6 +193,21 @@ def test_dates_and_parameter_injection():
         QueryPlan(cypher="MATCH (n) RETURN n")
 
 
+def test_call_sign_query_uses_index_friendly_exact_match_template():
+    summary, details = retrieval_queries(QueryPlan(call_sign="D7DZ"))
+    assert summary.startswith(CALL_SIGN_MATCH)
+    assert details.startswith(CALL_SIGN_MATCH)
+    assert "v.callSign = $call_sign" in summary
+    assert "vesselKey: $vessel_key" in summary
+    assert "$call_sign IS NULL OR" not in summary
+    generic_summary, _ = retrieval_queries(QueryPlan())
+    assert generic_summary == SUMMARY
+    assert (
+        parameters(QueryPlan(call_sign="d7dz"), 10, "Asia/Seoul")["vessel_key"]
+        == 'callsign:["D7DZ"]'
+    )
+
+
 def test_http_document_contract():
     def handler(request):
         """Assert retrieval-only API fields and return one chunk."""
@@ -149,6 +239,70 @@ def test_http_document_contract():
             ).retrieve("query")
 
     assert asyncio.run(run())[0]["chunk_id"] == "chunk1"
+
+
+def test_http_document_contract_accepts_hybrid():
+    def handler(request):
+        assert json.loads(request.content)["mode"] == "hybrid"
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "chunks": [],
+                    "entities": [
+                        {
+                            "entity_name": "Vessel:A8XY6",
+                            "entity_type": "Vessel",
+                            "description": "callSign=A8XY6",
+                            "source_id": "entity-chunk",
+                            "file_path": "custom_kg",
+                        }
+                    ],
+                    "relationships": [
+                        {
+                            "src_id": "Vessel:A8XY6",
+                            "tgt_id": "PortCall:1",
+                            "keywords": "MADE_PORT_CALL",
+                            "description": "A8XY6 made port call 1",
+                            "source_id": "relation-chunk",
+                            "file_path": "custom_kg",
+                        }
+                    ],
+                },
+            },
+        )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            return await DocumentRetriever(http, QueryConfig()).retrieve(
+                "query", "hybrid"
+            )
+
+    result = asyncio.run(run())
+    assert [row["evidence_type"] for row in result] == ["entity", "relationship"]
+    assert result[0]["chunk_id"] == "entity-chunk"
+    assert "MADE_PORT_CALL" in result[1]["content"]
+
+
+def test_empty_document_result_does_not_generate_zero_placeholders():
+    service, graph, qwen, docs = dependencies()
+    docs.retrieve.return_value = []
+    response = asyncio.run(
+        service.ask(
+            AskRequest(
+                question="A8XY6 지연 원인을 분석해줘.",
+                mode="hybrid",
+                plan=QueryPlan(intent="delays", call_sign="A8XY6"),
+            )
+        )
+    )
+    graph.retrieve.assert_not_awaited()
+    qwen.chat.assert_not_awaited()
+    assert response["evidence"] == []
+    assert "A8XY6" in response["answer"]
+    assert "근거가 없어" in response["answer"]
+    assert "결측값은 0으로 간주하지 않습니다" in response["answer"]
 
 
 def test_qwen_schema_and_invalid_plan():

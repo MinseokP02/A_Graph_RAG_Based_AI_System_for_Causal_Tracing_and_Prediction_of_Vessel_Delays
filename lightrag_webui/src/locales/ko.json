@@ -10,6 +10,7 @@
     "documents": "문서",
     "knowledgeGraph": "지식 그래프",
     "retrieval": "검색",
+    "portmisDashboard": "AIS 지도·TFT 예측",
     "apiDocs": "API 문서",
     "projectRepository": "프로젝트 저장소",
     "appSettings": "설정",

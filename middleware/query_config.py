@@ -22,6 +22,9 @@ class QueryConfig:
     timeout: float = 120
     graph_chars: int = 16000
     document_chars: int = 8000
+    tft_url: str = "http://localhost:9623"
+    tft_api_key: str = field(default="", repr=False)
+    tft_timeout: float = 30
 
     def __post_init__(self) -> None:
         """Validate budgets and timezone before starting clients."""
@@ -31,12 +34,14 @@ class QueryConfig:
         ZoneInfo(self.timezone)
         if not math.isfinite(self.timeout) or self.timeout <= 0:
             raise ValueError("QUERY_TIMEOUT must be positive and finite")
+        if not math.isfinite(self.tft_timeout) or self.tft_timeout <= 0:
+            raise ValueError("TFT_TIMEOUT must be positive and finite")
         if (
             not 1000 <= self.graph_chars <= 30000
             or not 1000 <= self.document_chars <= 16000
         ):
             raise ValueError("Context character budgets are out of range")
-        for url in (self.ollama_url, self.lightrag_url):
+        for url in (self.ollama_url, self.lightrag_url, self.tft_url):
             if urlsplit(url).scheme not in ("http", "https"):
                 raise ValueError("Service URLs must use HTTP(S)")
 
@@ -57,4 +62,7 @@ class QueryConfig:
             timeout=float(os.getenv("QUERY_TIMEOUT", "120")),
             graph_chars=int(os.getenv("GRAPH_CONTEXT_CHARS", "16000")),
             document_chars=int(os.getenv("DOCUMENT_CONTEXT_CHARS", "8000")),
+            tft_url=os.getenv("TFT_URL", "http://localhost:9623").rstrip("/"),
+            tft_api_key=os.getenv("TFT_API_KEY", ""),
+            tft_timeout=float(os.getenv("TFT_TIMEOUT", "30")),
         )

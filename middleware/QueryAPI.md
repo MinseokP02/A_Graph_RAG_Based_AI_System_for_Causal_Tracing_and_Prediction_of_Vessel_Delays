@@ -1,5 +1,9 @@
 # Neo4j + Qwen + LightRAG question API
 
+Departure delay forecasting is available through the `지연 예측` trigger or
+`plan.intent="delay_forecast"`. See [TFT setup and input contract](TFTForecast.md)
+for the separate model API, readiness states and checkpoint configuration.
+
 The query service runs beside the existing importer and LightRAG server.
 It reads the domain graph already loaded into Neo4j; it does not rebuild,
 re-embed, or migrate that graph.
@@ -23,6 +27,77 @@ Open <http://localhost:9622/docs>. Expand `POST /ask`, click **Try it out**,
 paste one of the request examples below and click **Execute**.
 The existing LightRAG UI on port 9621 is unchanged; its chat does not
 automatically call this new API. Use `/ask` or integrate it into your client.
+
+## Comparable retrieval modes
+
+`POST /ask` accepts a `mode` field. All modes use the same endpoint and Qwen
+answer-generation step, so the retrieval strategy is the controlled variable:
+
+| API mode | Retrieval |
+|---|---|
+| `naive` | LightRAG vector chunk retrieval; Neo4j is not queried |
+| `hybrid` | LightRAG hybrid retrieval; Neo4j is not queried |
+| `neo4j_mix` | Parameterized Neo4j retrieval plus LightRAG `mix` retrieval |
+
+`neo4j_mix` is the default for backward compatibility. `use_documents=false`
+continues to provide graph-only behavior for that mode. The two document-only
+modes always retrieve documents because otherwise they would have no evidence.
+The response echoes the selected `mode`; its `evidence` array makes the graph
+and document inputs auditable.
+
+```json
+{
+  "question": "호출부호 D7DZ 선박의 2026년 8월 1일 출항 시각을 알려줘.",
+  "mode": "hybrid",
+  "plan": {
+    "intent": "visits",
+    "call_sign": "D7DZ",
+    "start_date": "2026-08-01",
+    "end_date": "2026-08-01",
+    "date_basis": "departure"
+  }
+}
+```
+
+## Three-mode evaluation
+
+The checked-in Port-MIS evaluation suite keeps questions and ground truth
+separate:
+
+- `middleware/evaluation/questions.json`
+- `middleware/evaluation/answers.json`
+
+Validate the files without calling any service:
+
+```powershell
+.\.venv\Scripts\python.exe -m middleware.evaluate_modes --dry-run
+```
+
+With the LightRAG server, middleware API, Neo4j and Ollama running, evaluate all
+four questions in all three modes:
+
+```powershell
+.\.venv\Scripts\python.exe -m middleware.evaluate_modes
+```
+
+If middleware authentication is enabled, set `MIDDLEWARE_API_KEY` or pass
+`--api-key`. Use `--endpoint` for a non-default API address. Timestamped JSON
+and CSV reports are written to `middleware/evaluation/results/` and contain the
+answer, ground truth, latency, evidence counts, errors and per-term matches.
+
+The evaluator keeps deterministic required-term recall as a secondary diagnostic.
+For `delay_analysis` cases it also runs three isolated Qwen judges:
+
+- Comprehensiveness (1-5): question + retrieved evidence + answer.
+- Relevance (1-5): question + answer only.
+- Groundedness (0-1): retrieved evidence + answer only.
+
+Each score and rationale is stored in JSON; CSV contains the flattened scores.
+Set `JUDGE_OLLAMA_URL` and `JUDGE_MODEL` to use a different judge, or pass
+`--skip-judge` for retrieval-only checks. Non-delay fact/relation/count cases
+retain deterministic scoring because the causal rubric is not applicable.
+Edit both versioned suite files when the source dataset changes; `--dry-run`
+rejects mismatched or duplicate IDs.
 
 The default middleware environment file is `middleware/.env`. Keep the working
 Neo4j credentials and add these optional settings (defaults shown):

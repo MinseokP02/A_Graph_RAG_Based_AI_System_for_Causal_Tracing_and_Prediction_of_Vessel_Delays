@@ -58,6 +58,13 @@ inputs/
 output/
 rag_storage/
 data/
+models/
+*.ckpt
+*.pt
+*.pth
+
+# Generated domain evaluation reports (fixtures remain versioned)
+middleware/evaluation/results/
 
 # User cumstomized prompt directory
 prompts/entity_type/

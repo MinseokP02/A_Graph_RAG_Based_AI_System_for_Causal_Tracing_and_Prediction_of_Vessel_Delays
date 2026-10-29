@@ -1,0 +1,6 @@
+{
+  "question": "호출부호 202809 선박의 지연 예측을 알려줘.",
+  "plan": {"intent": "delay_forecast", "call_sign": "202809"},
+  "forecast_steps": 1,
+  "use_documents": true
+}

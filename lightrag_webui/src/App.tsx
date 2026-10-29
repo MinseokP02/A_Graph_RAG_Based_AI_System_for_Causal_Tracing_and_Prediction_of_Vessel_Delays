@@ -14,6 +14,7 @@ import { ZapIcon } from 'lucide-react'
 import GraphViewer from '@/features/GraphViewer'
 import DocumentManager from '@/features/DocumentManager'
 import RetrievalView from '@/features/RetrievalView'
+import PortMisDashboard from '@/features/PortMisDashboard'
 
 import { Tabs, TabsContent } from '@/components/ui/Tabs'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -226,6 +227,11 @@ function App() {
                 <TabsContent value="retrieval" className="absolute top-0 right-0 bottom-0 left-0 overflow-hidden">
                   <ErrorBoundary>
                     <RetrievalView />
+                  </ErrorBoundary>
+                </TabsContent>
+                <TabsContent value="portmis-dashboard" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
+                  <ErrorBoundary>
+                    <PortMisDashboard />
                   </ErrorBoundary>
                 </TabsContent>
               </div>

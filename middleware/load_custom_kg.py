@@ -5,6 +5,7 @@ Stop the normal server before running this module against the same storage.
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 
@@ -25,9 +26,13 @@ async def main():
     async with app.router.lifespan_context(app):
         rag = captured[0]
         payload = json.loads(
-            Path("/app/data/inputs/portmis_custom_kg.json").read_text(encoding="utf-8")
+            Path(
+                os.getenv("CUSTOM_KG_PATH", "/app/data/inputs/portmis_custom_kg.json")
+            ).read_text(encoding="utf-8")
         )
-        await rag.ainsert_custom_kg(payload, full_doc_id="portmis-neo4j-snapshot")
+        await rag.ainsert_custom_kg(
+            payload, full_doc_id=os.getenv("CUSTOM_KG_DOC_ID", "portmis-neo4j-snapshot")
+        )
         Path("/app/data/rag_storage/portmis_custom_kg_import.json").write_text(
             json.dumps({k: len(v) for k, v in payload.items()}), encoding="utf-8"
         )

@@ -219,6 +219,146 @@ export type QueryResponse = {
   response_time?: number
 }
 
+export type PortMISWeather = {
+  weatherTime?: string | null
+  temperatureC?: number | null
+  windSpeedMs?: number | null
+  rainMm?: number | null
+  portCode?: string | null
+  source?: string | null
+  datasetType?: string | null
+}
+
+export type PortMISRecord = {
+  callSign?: string | null
+  vesselName?: string | null
+  recordId: string
+  arrivalTime?: string | null
+  departureTime?: string | null
+  plannedDepartureTime?: string | null
+  portStayMinutes?: number | null
+  departureDelayMinutes?: number | null
+  isDepartureDelayed?: boolean | null
+  cargoOperationTon?: number | null
+  purpose?: string | null
+  ports?: Array<{ code?: string | null; name?: string | null }>
+  berths?: Array<{ code?: string | null; subCode?: string | null; name?: string | null }>
+  departureWeather?: PortMISWeather[]
+  controlEvents?: Array<{
+    eventId?: string | null
+    controlCode?: string | null
+    controlName?: string | null
+    eventTime?: string | null
+    facilityName?: string | null
+  }>
+  controlEventCount?: number
+  controlEventsTruncated?: boolean
+}
+
+export type PortMISAskRequest = {
+  question: string
+  mode?: 'naive' | 'hybrid' | 'neo4j_mix'
+  plan?: {
+    intent?: 'visits' | 'routes' | 'berths' | 'delays' | 'cargo' | 'count' | 'control' | 'delay_forecast'
+    call_sign?: string
+    vessel_name?: string
+    port_code?: string
+    port_name?: string
+    berth_name?: string
+    start_date?: string
+    end_date?: string
+    date_basis?: 'event' | 'arrival' | 'departure'
+  }
+  use_documents?: boolean
+  max_records?: number
+  forecast_steps?: number
+  delay_threshold_minutes?: number
+}
+
+export type PortMISForecastPoint = {
+  timestamp: string
+  p10: number
+  p50: number
+  p90: number
+  delay_probability_percent?: number | null
+}
+
+export type PortMISForecast = {
+  status: 'ok' | 'model_not_ready' | 'insufficient_data' | 'unavailable'
+  model: 'TFT'
+  model_version?: string | null
+  as_of?: string | null
+  target: 'departure_delay_minutes'
+  series_id?: string | null
+  predictions: PortMISForecastPoint[]
+  delay_threshold_minutes?: number | null
+  probability_method?: 'quantile_linear_interpolation_capped' | null
+  basis?: {
+    planned_departure?: string | null
+    feature_cutoff?: string | null
+    ais_observation_count?: number | null
+    latest_sog_knots?: number | null
+    latest_latitude?: number | null
+    latest_longitude?: number | null
+    gross_tonnage?: number | null
+    cargo_ton?: number | null
+    hours_to_arrival?: number | null
+  } | null
+}
+
+export type PortMISAskResponse = {
+  status: string
+  mode: string
+  answer: string
+  plan?: Record<string, unknown>
+  graph?: {
+    summary?: {
+      matchingRecords?: number
+      vessels?: number
+      knownDelayRecords?: number
+      knownStayRecords?: number
+      delayedRecords?: number
+    }
+    returned_records?: number
+  } | null
+  evidence?: Array<{
+    id: string
+    kind: string
+    record?: PortMISRecord
+    [key: string]: unknown
+  }>
+  warnings?: string[]
+  forecast?: PortMISForecast
+}
+
+export type AisTrackPoint = {
+  mmsi: string
+  timestamp: string
+  latitude: number
+  longitude: number
+  sog?: number | null
+  cog?: number | null
+  heading?: number | null
+}
+
+export type AisTrackedVessel = {
+  mmsi: string
+  shipName?: string | null
+  callSign?: string | null
+  imoNumber?: string | null
+  latest: AisTrackPoint
+  points: AisTrackPoint[]
+}
+
+export type AisTracksResponse = {
+  status: 'ok' | 'empty'
+  region: 'korea'
+  hours: number
+  bounds?: { north: number; south: number; west: number; east: number }
+  vessels: AisTrackedVessel[]
+  summary: { vessels: number; points: number; limited?: boolean }
+}
+
 export type EntityUpdateResponse = {
   status: string
   message: string
@@ -594,6 +734,25 @@ export const queryText = async (
   signal?: AbortSignal
 ): Promise<QueryResponse> => {
   const response = await axiosInstance.post('/query', request, { signal })
+  return response.data
+}
+
+export const askPortMIS = async (
+  request: PortMISAskRequest,
+  signal?: AbortSignal
+): Promise<PortMISAskResponse> => {
+  const response = await axiosInstance.post('/portmis/ask', request, { signal })
+  return response.data
+}
+
+export const getAisTracks = async (
+  hours = 24,
+  signal?: AbortSignal
+): Promise<AisTracksResponse> => {
+  const response = await axiosInstance.get('/portmis/ais/tracks', {
+    params: { hours, max_points: 10000 },
+    signal
+  })
   return response.data
 }
 

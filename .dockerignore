@@ -11,6 +11,7 @@ env/
 .env_example
 
 # Distribution / build files
+**/node_modules/
 site
 dist/
 build/
@@ -34,6 +35,13 @@ Makefile
 /output_complete
 /rag_storage
 /inputs
+/models
+*.ckpt
+*.pt
+*.pth
+
+# Generated domain evaluation reports
+/middleware/evaluation/results
 
 # Python version manager file
 .python-version

@@ -1,5 +1,55 @@
 # A_Graph_RAG_Based_AI_System_for_Causal_Tracing_and_Prediction_of_Vessel_Delays
 
+This repository extends [LightRAG](https://github.com/HKUDS/LightRAG) into a
+vessel-delay analysis platform. It combines a typed Port-MIS/Neo4j graph,
+LightRAG document retrieval, live AIS collection, regional weather features,
+and Temporal Fusion Transformer (TFT) delay forecasts behind one query API and
+dashboard.
+
+## Vessel-delay extension
+
+The project-specific code is separated from the upstream LightRAG core:
+
+- `middleware/`: Port-MIS ingestion, constrained Neo4j retrieval, grounded
+  answer generation, voyage matching, feature engineering, TFT training and
+  inference.
+- `lightrag/api/routers/portmis_routes.py`: authenticated same-origin API used
+  by the WebUI.
+- `collect_ais_to_csv.py` and `collect_weather.py`: bounded dataset collectors.
+- `lightrag_webui/src/features/`: AIS map and Port-MIS dashboard views.
+- `tests/middleware/` and `tests/api/routes/test_portmis_routes.py`: offline
+  regression coverage for the extension.
+
+Local datasets, `.env` files, model checkpoints, generated evaluation reports,
+logs, and vector/graph storage are excluded from Git. Only source code, schemas,
+example configuration, and reproducible fixtures belong in commits.
+
+### Quick start for the extension
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
+pip install -e ".[api,pytest]"
+pip install -r middleware/requirements.txt
+# Windows: Copy-Item middleware/.env.example middleware/.env
+# Linux/macOS: cp middleware/.env.example middleware/.env
+python -m middleware.query_api
+```
+
+Run the extension's offline checks with:
+
+```bash
+pytest -q tests/middleware tests/api/routes/test_portmis_routes.py
+ruff check middleware collect_ais_to_csv.py collect_weather.py \
+  lightrag/api/routers/portmis_routes.py tests/middleware
+```
+
+See [middleware/README.md](middleware/README.md) for graph ingestion,
+[middleware/QueryAPI.md](middleware/QueryAPI.md) for retrieval modes, and
+[middleware/TFTForecast.md](middleware/TFTForecast.md) for the forecasting
+pipeline. The remainder of this README documents the upstream LightRAG base.
+
 <div align="center">
 
 <div style="margin: 20px 0;">

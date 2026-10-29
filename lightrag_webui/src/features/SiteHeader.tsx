@@ -47,6 +47,9 @@ function TabsNavigation() {
         <NavigationTab value="retrieval" currentTab={currentTab}>
           {t('header.retrieval')}
         </NavigationTab>
+        <NavigationTab value="portmis-dashboard" currentTab={currentTab}>
+          {t('header.portmisDashboard', 'AIS 지도·TFT 예측')}
+        </NavigationTab>
       </TabsList>
     </div>
   )
