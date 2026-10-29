@@ -10,11 +10,7 @@ from pathlib import Path
 
 def _escape_command(value: str) -> str:
     """Escape data embedded in a GitHub workflow command."""
-    return (
-        value.replace("%", "%25")
-        .replace("\r", "%0D")
-        .replace("\n", "%0A")
-    )
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 def failed_cases(report: Path) -> list[tuple[str, str]]:
@@ -30,7 +26,9 @@ def failed_cases(report: Path) -> list[tuple[str, str]]:
         classname = case.attrib.get("classname", "")
         name = case.attrib.get("name", "unknown test")
         test_id = f"{classname}::{name}" if classname else name
-        detail = (failure.attrib.get("message") or failure.text or "test failed").strip()
+        detail = (
+            failure.attrib.get("message") or failure.text or "test failed"
+        ).strip()
         failures.append((test_id, detail[:4000]))
     return failures
 
@@ -50,10 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     for test_id, detail in failures[:50]:
-        print(
-            f"::error title={_escape_command(test_id)}::"
-            f"{_escape_command(detail)}"
-        )
+        print(f"::error title={_escape_command(test_id)}::{_escape_command(detail)}")
     if len(failures) > 50:
         print(f"::error title=Additional failures::{len(failures) - 50} more failures")
     return 1
